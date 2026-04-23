@@ -24,6 +24,7 @@ const b4a = require('b4a')
 
 const { HyperdrivesFuse, isConfigured, unmount: fuseUnmount } = require('..')
 const { Registry } = require('../lib/registry')
+const { createMountTui } = require('../lib/mount-tui')
 const { DRIVE_ROOT_NS } = require('../lib/constants')
 
 const name = 'hyperdrives-fuse'
@@ -56,6 +57,7 @@ One FUSE mount: each drive lives in its own Corestore namespace
 (corestore.namespace('hyperdrives-fuse-drives').namespace('<label>')), and appears as
 <label>-<z32-52> in the root listing. You can mkdir <label> at the volume root to create
 a drive, or use the add command; ls shows the final name with the public key.
+A label is 1–200 characters (spaces allowed); no slash (/) or newlines.
 
 Commands:
   ${name} mount <mountpoint> [options]   Start FUSE (multi-drive)
@@ -70,6 +72,7 @@ Options (where applicable):
   -d, --debug            FUSE op logging
   -s, --storage <path>   Corestore directory (default: ~/.hyperdrives-fuse)
   --no-swarm             Do not use Hyperswarm (local only)
+  --no-tui               Plain log lines instead of the live status screen (default on non-TTY; use with -d)
   -k, --key <z32>        (add) register an existing public key instead of a new drive
 
 add/remove/list read and write the registry file next to the corestore
@@ -145,7 +148,7 @@ async function cmdAdd (rest) {
     die(1, 'add: missing <label>\nRun "' + name + ' help" for usage.')
   }
   if (o.pos.length > 1) {
-    die(1, 'add: only one <label> is allowed (use a label without spaces, or quote it).')
+    die(1, 'add: only one <label> is allowed (quote if it contains spaces).')
   }
   const label = o.pos[0]
   const r = openRegistry(o.storage)
@@ -225,6 +228,7 @@ function cmdRemove (rest) {
 function parseMountArgs (raw) {
   let storage = defaultStorage()
   let noSwarm = false
+  let noTui = false
   const pos = []
   for (let i = 0; i < raw.length; i++) {
     const a = raw[i]
@@ -232,6 +236,8 @@ function parseMountArgs (raw) {
       const v = raw[++i]
       if (v == null) die(1, 'Missing value for ' + a)
       storage = p.resolve(v)
+    } else if (a === '--no-tui') {
+      noTui = true
     } else if (a === '--no-swarm') {
       noSwarm = true
     } else if (a === '-d' || a === '--debug') {
@@ -250,11 +256,11 @@ function parseMountArgs (raw) {
   if (pos.length > 1) {
     die(1, 'mount: only one <mountpoint> is allowed.')
   }
-  return { storage, noSwarm, mountPath: p.resolve(pos[0]) }
+  return { storage, noSwarm, noTui, mountPath: p.resolve(pos[0]) }
 }
 
 async function cmdMount (rest) {
-  const { storage, noSwarm, mountPath } = parseMountArgs(rest)
+  const { storage, noSwarm, noTui, mountPath } = parseMountArgs(rest)
 
   fs.mkdirSync(storage, { recursive: true })
   const registry = new Registry(storage)
@@ -301,6 +307,16 @@ async function cmdMount (rest) {
     void swarm.flush()
   }
 
+  const tui = createMountTui({
+    registry,
+    swarm,
+    noSwarm,
+    mountPath,
+    storage,
+    name,
+    version
+  })
+
   const swarmTopicHooks = !noSwarm && swarm
     ? {
         onDriveAdded (key) {
@@ -312,10 +328,12 @@ async function cmdMount (rest) {
               'Warning: Hyperswarm join (new drive at runtime): ' + (e && e.message ? e.message : e) + '\n'
             )
           }
+          tui.bump()
         },
         onDriveRemoved (key) {
           const topic = discoveryKey(key)
           void swarm.leave(topic).catch(() => {})
+          tui.bump()
         }
       }
     : {}
@@ -344,24 +362,34 @@ async function cmdMount (rest) {
     die(1, 'Mount failed: ' + (e && e.message ? e.message : e))
   }
 
-  const folders = registry.listFolderNames()
-  const swarmLine = noSwarm
-    ? '  Hyperswarm: disabled (--no-swarm)\n'
-    : '  Hyperswarm: DHT P2P enabled for each registered drive\n'
+  let useTui = false
+  if (process.stderr.isTTY && !noTui) {
+    useTui = true
+    tui.start()
+  } else {
+    const folders = registry.listFolderNames()
+    const swarmLine = noSwarm
+      ? '  Hyperswarm: disabled (--no-swarm)\n'
+      : '  Hyperswarm: DHT P2P enabled for each registered drive\n'
 
-  process.stderr.write(
-    `${name} mounted\n` +
-    `  Mount:     ${result.mnt}\n` +
-    `  Storage:   ${storage}\n` +
-    `  Registry:  ${registry.filePath}\n` +
-    `  Drives:    ${folders.length} (${folders.join(', ') || 'none — use "${name} add"'})\n` +
-    swarmLine +
-    `  Node PID:  ${process.pid} (keep running; Ctrl+C to unmount.)\n`
-  )
+    process.stderr.write(
+      `${name} mounted\n` +
+      `  Mount:     ${result.mnt}\n` +
+      `  Storage:   ${storage}\n` +
+      `  Registry:  ${registry.filePath}\n` +
+      `  Drives:    ${folders.length} (${folders.join(', ') || 'none — use "${name} add"'})\n` +
+      swarmLine +
+      `  Node PID:  ${process.pid} (keep running; Ctrl+C to unmount.)\n`
+    )
+  }
 
   const shutdown = async (signal) => {
+    tui.stop()
+    if (useTui) {
+      process.stderr.write('\x1b[0m\x1b[2J\x1b[H')
+    }
     if (signal) {
-      process.stderr.write(`\n${signal} received, unmounting…\n`)
+      process.stderr.write(`${signal} received, unmounting…\n`)
     }
     if (swarm) {
       try {

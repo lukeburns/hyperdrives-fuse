@@ -4,7 +4,8 @@
   "description": "FUSE mount: one root listing named Hyperdrives in a single Corestore",
   "main": "index.js",
   "bin": {
-    "hyperdrives-fuse": "bin/hyperdrives-fuse.js"
+    "hyperdrives-fuse": "bin/hyperdrives-fuse.js",
+    "hyperdrives": "bin/hyperdrives.js"
   },
   "files": [
     "index.js",

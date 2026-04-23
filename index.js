@@ -21,7 +21,7 @@ const { translate, linux } = fsConstants
 const Fuse = require('@zkochan/fuse-native')
 const createPosixAdapter = require('hyperdrive-fuse').createPosixAdapter
 const Hyperdrive = require('hyperdrive')
-const { tryParseFolderName, formatFolderName, isPlainLabel } = require('./lib/folder')
+const { tryParseFolderName, formatFolderName, isPlainLabel, isValidLabelSegment, isAmbiguousKeyForm } = require('./lib/folder')
 const { DRIVE_ROOT_NS } = require('./lib/constants')
 const debug = require('debug')('hyperdrives-fuse')
 
@@ -72,12 +72,13 @@ class HyperdrivesFuse {
    * Corestore session for one drive; hypercores for that drive are namespaced from other labels.
    * @param {string} label
    */
-  _driveStore (label) {
-    return this.corestore.namespace(this.driveRootNs).namespace(label)
+  /** @param {string} storageNs - stable Corestore sub-key (see registry `s`); not always current display `label` */
+  _driveStore (storageNs) {
+    return this.corestore.namespace(this.driveRootNs).namespace(storageNs)
   }
 
   /**
-   * @returns {{ kind: 'fsRoot' } | { kind: 'enoent' } | { kind: 'drive', folder: string, key: Buffer, keyZ32: string, label: string, inner: string }}
+   * @returns {{ kind: 'fsRoot' } | { kind: 'enoent' } | { kind: 'drive', folder: string, key: Buffer, keyZ32: string, label: string, storageNs: string, inner: string }}
    */
   splitPath (fspath) {
     const n = norm(fspath)
@@ -97,6 +98,7 @@ class HyperdrivesFuse {
         key: ent.key,
         keyZ32: ent.keyZ32,
         label: ent.label,
+        storageNs: ent.storageNs,
         inner
       }
     }
@@ -111,6 +113,7 @@ class HyperdrivesFuse {
         key: ent.key,
         keyZ32: ent.keyZ32,
         label: ent.label,
+        storageNs: ent.storageNs,
         inner
       }
     }
@@ -124,7 +127,7 @@ class HyperdrivesFuse {
     const hex = b4a.toString(split.key, 'hex')
     let s = this._driveState.get(hex)
     if (!s) {
-      const store = this._driveStore(split.label)
+      const store = this._driveStore(split.storageNs)
       const raw = new Hyperdrive(store, split.key)
       s = { raw, posix: createPosixAdapter(raw) }
       this._driveState.set(hex, s)
@@ -433,6 +436,50 @@ class HyperdrivesFuse {
     handlers.rename = function (from, to, cb) {
       log('rename', from, to)
       const a = self.splitPath(from)
+      if (a.kind === 'drive' && a.inner === '/') {
+        const toN = norm(to)
+        const toSegs = toN.split('/').filter(Boolean)
+        if (toSegs.length !== 1) {
+          return errCb(cb, 1)
+        }
+        const dest = toSegs[0]
+        const pto = tryParseFolderName(dest)
+        if (pto) {
+          if (!b4a.equals(pto.key, a.key)) {
+            return cb(Fuse.EINVAL)
+          }
+          if (pto.label === a.label) {
+            return cb(0)
+          }
+          const out = self.registry.relabel(a.key, pto.label)
+          if (out.err) {
+            if (out.err === 'label taken') return cb(Fuse.EEXIST)
+            if (out.err === 'invalid label') return cb(Fuse.EINVAL)
+            return errCb(cb, 1)
+          }
+          return cb(0)
+        }
+        if (isAmbiguousKeyForm(dest)) {
+          return cb(Fuse.EINVAL)
+        }
+        if (!isValidLabelSegment(dest)) {
+          return cb(Fuse.EINVAL)
+        }
+        const taken = self.registry.getByLabel(dest)
+        if (taken && !b4a.equals(taken.key, a.key)) {
+          return cb(Fuse.EEXIST)
+        }
+        if (taken && b4a.equals(taken.key, a.key)) {
+          return cb(0)
+        }
+        const out = self.registry.relabel(a.key, dest)
+        if (out.err) {
+          if (out.err === 'label taken') return cb(Fuse.EEXIST)
+          if (out.err === 'invalid label') return cb(Fuse.EINVAL)
+          return errCb(cb, 1)
+        }
+        return cb(0)
+      }
       const b = self.splitPath(to)
       if (a.kind === 'fsRoot' || b.kind === 'fsRoot') {
         return errCb(cb, 1)
@@ -542,7 +589,8 @@ class HyperdrivesFuse {
           if (self.registry.getByFolderName(one)) {
             return cb(Fuse.EEXIST)
           }
-          return errCb(cb, 1) // do not fabricate a full folder name; mkdir a short label only
+          // do not fabricate a full folder name; mkdir a short label only
+          return cb(Fuse.EINVAL)
         }
         if (isPlainLabel(one)) {
           const c = self.registry.canAdd(one)
@@ -550,7 +598,7 @@ class HyperdrivesFuse {
             if (c.reason && String(c.reason).includes('already')) {
               return cb(Fuse.EEXIST)
             }
-            return errCb(cb, 1)
+            return cb(Fuse.EINVAL)
           }
           let done = false
           const finish = (errn) => {
@@ -603,7 +651,8 @@ class HyperdrivesFuse {
           })()
           return
         }
-        return errCb(cb, 1) // not a valid label
+        // not a valid root label (see lib/folder isValidLabelSegment)
+        return cb(Fuse.EINVAL)
       }
       const sp = self.splitPath(fspath)
       if (sp.kind === 'enoent') {
