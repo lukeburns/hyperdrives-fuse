@@ -1,0 +1,5 @@
+node_modules/
+mnt/
+.DS_Store
+hyperdrives-fuse-registry.json
+*.tmp

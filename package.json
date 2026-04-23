@@ -1,0 +1,31 @@
+{
+  "name": "hyperdrives-fuse",
+  "version": "0.0.1",
+  "description": "FUSE mount: one root listing named Hyperdrives in a single Corestore",
+  "main": "index.js",
+  "bin": {
+    "hyperdrives-fuse": "bin/hyperdrives-fuse.js"
+  },
+  "files": [
+    "index.js",
+    "lib",
+    "bin"
+  ],
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "@zkochan/fuse-native": "github:lukeburns/fuse-native",
+    "b4a": "^1.0.0",
+    "corestore": "^7.0.0",
+    "debug": "^4.3.0",
+    "filesystem-constants": "^1.0.0",
+    "hypercore-crypto": "^3.4.0",
+    "hyperdrive": "^13.3.2",
+    "hyperdrive-fuse": "github:lukeburns/hyperdrive-fuse",
+    "hyperswarm": "^4.17.0",
+    "unix-path-resolve": "^1.0.2",
+    "z32": "^1.1.0"
+  }
+}
