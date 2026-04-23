@@ -351,7 +351,8 @@ class HyperdrivesFuse {
       })
     }
 
-    handlers.flush = function (fspath, handle, cb) {
+    // flush: (path, fd, cb) — fsync: (path, datasync, fd, cb) per fuse-native _op_fsync
+    const doFsync = (fspath, handle, cb) => {
       if (self._isRootFd(handle)) {
         return cb(0)
       }
@@ -371,7 +372,12 @@ class HyperdrivesFuse {
       })
     }
 
-    handlers.fsync = handlers.flush
+    handlers.flush = function (fspath, handle, cb) {
+      return doFsync(fspath, handle, cb)
+    }
+    handlers.fsync = function (fspath, _datasync, handle, cb) {
+      return doFsync(fspath, handle, cb)
+    }
 
     handlers.fsyncdir = function (fspath, datasync, handle, cb) {
       if (self._isRootFd(handle)) {
