@@ -271,7 +271,7 @@ async function cmdMount (rest) {
       isConfigured((err, ok) => {
         if (!err && !ok) {
           process.stderr.write(
-            'Warning: FUSE may not be configured. On macOS see @zkochan/fuse-native (e.g. fuse-native configure)\n'
+            'Warning: FUSE may not be configured. On macOS see fuse-native (e.g. fuse-native configure)\n'
           )
         }
         resolve()
