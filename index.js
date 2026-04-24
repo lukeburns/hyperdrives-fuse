@@ -18,6 +18,7 @@ const O_APPEND = (fs.constants && fs.constants.O_APPEND) || 0o2000
 const unixPathResolve = require('unix-path-resolve')
 const fsConstants = require('filesystem-constants')
 const { translate, linux } = fsConstants
+const hypercoreCrypto = require('hypercore-crypto')
 const Fuse = require('fuse-native')
 const createPosixAdapter = require('hyperdrive-fuse').createPosixAdapter
 const Hyperdrive = require('hyperdrive')
@@ -27,6 +28,10 @@ const debug = require('debug')('hyperdrives-fuse')
 
 const platform = os.platform()
 const norm = (s) => unixPathResolve('/', s)
+const XATTR_DRIVE_KEY = 'user.hyperdrive.key'
+const XATTR_DRIVE_KEY_Z32 = 'user.hyperdrive.key.z32'
+const XATTR_DRIVE_DISCOVERY_KEY = 'user.hyperdrive.discovery_key'
+const DRIVE_ROOT_XATTRS = [XATTR_DRIVE_KEY, XATTR_DRIVE_KEY_Z32, XATTR_DRIVE_DISCOVERY_KEY]
 
 const ROOT_FD_BASE = 0x2f000000
 let _rootFdSeq = 0
@@ -194,6 +199,23 @@ class HyperdrivesFuse {
     }
 
     const errCb = (cb, n) => cb(-(n != null ? n : 1) || Fuse.EPERM)
+    const isDriveRootPath = (fspath, sp) => {
+      if (sp.kind !== 'drive') return false
+      if (sp.inner !== '/') return false
+      return norm(fspath).split('/').filter(Boolean).length === 1
+    }
+    const driveRootXattrValue = (name, sp) => {
+      if (name === XATTR_DRIVE_KEY) {
+        return Buffer.from(b4a.toString(sp.key, 'hex'))
+      }
+      if (name === XATTR_DRIVE_KEY_Z32) {
+        return Buffer.from(sp.keyZ32)
+      }
+      if (name === XATTR_DRIVE_DISCOVERY_KEY) {
+        return Buffer.from(b4a.toString(hypercoreCrypto.discoveryKey(sp.key), 'hex'))
+      }
+      return null
+    }
 
     handlers.getattr = function (fspath, cb) {
       log('getattr', fspath)
@@ -967,6 +989,10 @@ class HyperdrivesFuse {
         }
         return sp.kind === 'fsRoot' ? errCb(cb, 1) : errCb(cb, 2)
       }
+      if (isDriveRootPath(fspath, sp)) {
+        const value = driveRootXattrValue(name, sp)
+        if (value) return cb(0, value)
+      }
       self._ensure(sp, (err, st) => {
         if (err) return errCb(cb, 2)
         st.posix.getxattr(sp.inner, name, position, (e2, value) => {
@@ -991,6 +1017,9 @@ class HyperdrivesFuse {
       }
       if (sp.kind === 'enoent') {
         return errCb(cb, 2)
+      }
+      if (isDriveRootPath(fspath, sp)) {
+        return cb(0, DRIVE_ROOT_XATTRS.slice())
       }
       self._ensure(sp, (err, st) => {
         if (err) return errCb(cb, 2)
