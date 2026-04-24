@@ -612,7 +612,7 @@ class HyperdrivesFuse {
       }
       const one = n.split('/').filter(Boolean)[0]
       if (nSeg === 1) {
-        // Canonical "label-z32" (or legacy "label#z32")
+        // Canonical "label.z32" (or legacy "label#z32")
         if (tryParseFolderName(one)) {
           if (self.registry.getByFolderName(one)) {
             return cb(Fuse.EEXIST)

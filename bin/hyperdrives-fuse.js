@@ -55,7 +55,7 @@ ${name} v${version}
 
 One FUSE mount: each drive lives in its own Corestore namespace
 (corestore.namespace('hyperdrives-fuse-drives').namespace('<label>')), and appears as
-<label>-<z32-52> in the root listing. You can mkdir <label> at the volume root to create
+<label>.<z32-52> in the root listing. You can mkdir <label> at the volume root to create
 a drive, or use the add command; ls shows the final name with the public key.
 A label is 1–200 characters (spaces allowed); no slash (/) or newlines.
 
@@ -63,7 +63,7 @@ Commands:
   ${name} mount <mountpoint> [options]   Start FUSE (multi-drive)
   ${name} add <label> [options]          Create a new drive and register it (or import with -k)
   ${name} list [options]               Print registered drives (label + folder name)
-  ${name} remove <label#z32> [options]  Unregister a drive (storage must be consistent with -s)
+  ${name} remove <label.z32> [options]  Unregister a drive (storage must be consistent with -s)
   ${name} unmount <mountpoint>         Unmount
   ${name} help
   ${name} version
@@ -212,10 +212,10 @@ function cmdRemove (rest) {
   const o = parseWithStorage(rest)
   const folder = o.pos[0]
   if (!folder) {
-    die(1, 'remove: missing <label#z32>\nRun "' + name + ' help" for usage.')
+    die(1, 'remove: missing <label.z32>\nRun "' + name + ' help" for usage.')
   }
   if (o.pos.length > 1) {
-    die(1, 'remove: pass a single argument <label#z32>')
+    die(1, 'remove: pass a single argument <label.z32>')
   }
   const r = openRegistry(o.storage)
   const out = r.removeByFolderName(folder)
