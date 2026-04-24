@@ -5,7 +5,7 @@ A FUSE mount for managing a directory of hyperdrives.
 ## Usage
 
 ```sh
-npm i -g lukeburns/hyperdrives-fuse
+npm i -g @lukeburns/hyperdrives-fuse
 hyperdrives
 ```
 
